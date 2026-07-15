@@ -86,7 +86,7 @@ export async function injectRequestData(
   };
 }
 
-function injectSecrets(str: string, map: Map<string, string>): string {
+export function injectSecrets(str: string, map: Map<string, string>): string {
   for (const [key, val] of map.entries()) {
     str = str.replaceAll(key, val);
   }

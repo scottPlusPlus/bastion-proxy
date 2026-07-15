@@ -24,6 +24,7 @@ export function NavbarUserMenu({ user }: Props) {
       >
         {user.image ? (
           <div className="avatar w-10 rounded-full">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img alt={user.name ?? "Avatar"} src={user.image} />
           </div>
         ) : (

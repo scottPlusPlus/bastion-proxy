@@ -4,14 +4,14 @@ import { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  registerWithEmailPassword,
+  signInWithEmailPassword,
   type AuthFormState,
 } from "@/lib/auth-actions";
 
-export function SignUpForm() {
+export function SignInForm() {
   const router = useRouter();
   const [state, formAction, pending] = useActionState<AuthFormState, FormData>(
-    registerWithEmailPassword,
+    signInWithEmailPassword,
     null
   );
 
@@ -24,17 +24,17 @@ export function SignUpForm() {
 
   return (
     <form action={formAction} className="w-full space-y-3">
-      {state?.error && (
+      {state && "error" in state && state.error && (
         <div role="alert" className="alert alert-error alert-sm">
           <span>{state.error}</span>
         </div>
       )}
       <div className="form-control">
-        <label className="label" htmlFor="signup-email">
+        <label className="label" htmlFor="signin-email">
           <span className="label-text">Email</span>
         </label>
         <input
-          id="signup-email"
+          id="signin-email"
           name="email"
           type="email"
           autoComplete="email"
@@ -44,29 +44,14 @@ export function SignUpForm() {
         />
       </div>
       <div className="form-control">
-        <label className="label" htmlFor="signup-password">
+        <label className="label" htmlFor="signin-password">
           <span className="label-text">Password</span>
         </label>
         <input
-          id="signup-password"
+          id="signin-password"
           name="password"
           type="password"
-          autoComplete="new-password"
-          minLength={8}
-          className="input input-bordered w-full"
-          required
-        />
-      </div>
-      <div className="form-control">
-        <label className="label" htmlFor="signup-confirm-password">
-          <span className="label-text">Confirm password</span>
-        </label>
-        <input
-          id="signup-confirm-password"
-          name="confirmPassword"
-          type="password"
-          autoComplete="new-password"
-          minLength={8}
+          autoComplete="current-password"
           className="input input-bordered w-full"
           required
         />
@@ -76,12 +61,12 @@ export function SignUpForm() {
         className="btn btn-primary w-full"
         disabled={pending}
       >
-        {pending ? "Creating account…" : "Create account"}
+        {pending ? "Signing in…" : "Sign in"}
       </button>
       <p className="text-sm text-base-content/70">
-        Already have an account?{" "}
-        <Link href="/login" className="link link-primary">
-          Sign in
+        Don&apos;t have an account?{" "}
+        <Link href="/signup" className="link link-primary">
+          Sign up
         </Link>
       </p>
     </form>

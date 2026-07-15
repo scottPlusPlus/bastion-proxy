@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 config({ path: join(root, ".env"), quiet: true });
+config({ path: join(root, ".env.local"), override: true, quiet: true });
 
 const port = process.env.PORT ?? "4000";
 const nextBin = join(root, "node_modules", "next", "dist", "bin", "next");

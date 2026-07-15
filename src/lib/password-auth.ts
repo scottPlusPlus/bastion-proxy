@@ -8,7 +8,7 @@ const SESSION_MAX_AGE = 30 * 24 * 60 * 60;
 
 export type LoginResult = { ok: true } | { ok: false; error: string };
 
-function useSecureCookies(): boolean {
+function secureCookies(): boolean {
   const authUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? "";
   return (
     process.env.NODE_ENV === "production" || authUrl.startsWith("https://")
@@ -45,19 +45,15 @@ export async function loginWithPassword(
     },
   });
 
-  const secure = useSecureCookies();
+  const secure = secureCookies();
   const cookieStore = await cookies();
-  cookieStore.set(
-    secure ? "__Secure-authjs.session-token" : "authjs.session-token",
-    sessionToken,
-    {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      secure,
-      expires,
-    }
-  );
+  cookieStore.set("authjs.session-token.bastion", sessionToken, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    secure,
+    expires,
+  });
 
   return { ok: true };
 }

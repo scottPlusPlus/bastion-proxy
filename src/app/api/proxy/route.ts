@@ -6,28 +6,53 @@ import {
   sanitizeResponseBody,
   InjectedRequestData,
 } from "@/lib/proxy/utils";
-import { validUserFromReq } from "@/lib/auth/api-auth";
+import { getGoogleAccessToken } from "@/lib/proxy/google-auth";
+import { getProjectFromReq } from "@/lib/proxy/get-project";
 
 export async function POST(req: NextRequest) {
   logger.debug(`handle api/proxy`);
   try {
     const body = await req.json();
     const fetchUrl: string = body.fetchUrl;
+    const openUrl: string = body.getUrl;
     const fetchData: RequestInit = body.requestInit ?? null;
     const secretKeys: Array<string> = body.secretKeys ?? [];
+    const googleAuth: { credentialsKey: string; scopes: string[] } | undefined =
+      body.googleAuth;
 
-    const user = await validUserFromReq(req);
-    if (!user) {
-      return NextResponse.json({ error: "Invalid user" }, { status: 401 });
+    const project = await getProjectFromReq(req);
+    if (!project) {
+      return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
     }
-    if (!fetchUrl) {
-      return NextResponse.json({ error: "Missing fetchUrl" }, { status: 400 });
+    if (!fetchUrl && !openUrl) {
+      return NextResponse.json({ error: "Missing fetchUrl or getUrl" }, { status: 400 });
+    }
+
+    // getUrl: inject secrets into a URL and return it — no HTTP request is made.
+    // Use this when the URL will be opened by a browser (e.g. OAuth redirects).
+    // Only non-secret env vars are allowed — the resolved value is returned to the caller.
+    if (openUrl) {
+      const secretVar = secretKeys.find((k) => project.envVars.find((v) => v.key === k && v.isSecret));
+      if (secretVar) {
+        return NextResponse.json(
+          { error: `Cannot use secret env var "${secretVar}" in getUrl — resolved value would be returned to caller` },
+          { status: 400 },
+        );
+      }
+      let injectedData;
+      try {
+        injectedData = await injectRequestData(openUrl, undefined, secretKeys, (key) =>
+          resolveEnvVar(key, project.envVars),
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return NextResponse.json({ error: "Error: " + message }, { status: 400 });
+      }
+      logger.info("Proxy getUrl", { project: project.name, targetUrl: openUrl });
+      return NextResponse.json({ url: injectedData.url });
     }
     if (fetchData && !isValidRequestInit(fetchData)) {
-      return NextResponse.json(
-        { error: "Invalid fetch data" },
-        { status: 401 },
-      );
+      return NextResponse.json({ error: "Invalid fetch data" }, { status: 400 });
     }
 
     let injectedData: InjectedRequestData;
@@ -36,43 +61,77 @@ export async function POST(req: NextRequest) {
         fetchUrl,
         fetchData,
         secretKeys,
-        envVarReplacer,
+        (key) => resolveEnvVar(key, project.envVars),
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.error(`api/proxy error from replaceRequestData: ${message}`);
+      logger.error(`api/proxy error from injectRequestData: ${message}`);
       return NextResponse.json({ error: "Error: " + message }, { status: 400 });
     }
 
-    const logData = { user: user, targetUrl: fetchUrl, keys: secretKeys };
-    logger.info(`Proxy`, logData);
-
-    const res = await fetch(injectedData.url, injectedData.requestInit);
-    logger.debug(
-      `Proxy has response from ${fetchUrl}, status: ${res.status}`,
-    );
-
-    // Check content length before reading
-    const contentLength = res.headers.get("Content-Length");
-    if (contentLength && parseInt(contentLength) > 10_000_000) {
-      logger.error(
-        `Response too large: ${contentLength} bytes from ${fetchUrl}`,
-      );
-      return NextResponse.json(
-        { error: "Response too large" },
-        { status: 413 },
-      );
+    if (googleAuth?.credentialsKey) {
+      const envVar = project.envVars.find((v) => v.key === googleAuth.credentialsKey);
+      if (!envVar) {
+        return NextResponse.json(
+          { error: `No env var "${googleAuth.credentialsKey}" for this project` },
+          { status: 400 },
+        );
+      }
+      const token = await getGoogleAccessToken(envVar.value, googleAuth.scopes ?? []);
+      injectedData = {
+        url: injectedData.url,
+        requestInit: {
+          ...(injectedData.requestInit ?? {}),
+          headers: {
+            ...((injectedData.requestInit?.headers as Record<string, string>) ?? {}),
+            Authorization: `Bearer ${token}`,
+          },
+        },
+        secretValues: [...injectedData.secretValues, token],
+      };
     }
 
-    // Read response body as a buffer, remove any secrets we injected
+    logger.info(`Proxy`, { project: project.name, targetUrl: fetchUrl, keys: secretKeys });
+
+    const res = await fetch(injectedData.url, injectedData.requestInit);
+    logger.debug(`Proxy has response from ${fetchUrl}, status: ${res.status}`);
+
+    const contentType = res.headers.get("Content-Type") || "";
+    const isTextBased =
+      contentType.includes("text") ||
+      contentType.includes("json") ||
+      contentType.includes("xml");
+
+    if (!isTextBased) {
+      // Binary response — stream directly, no buffering or secret redaction needed
+      logger.debug(`Proxy: streaming binary response (${contentType})`);
+      return new NextResponse(res.body, {
+        status: res.status,
+        statusText: res.statusText,
+        headers: stripEncodingHeaders(res.headers),
+      });
+    }
+
+    // Text/JSON/XML — buffer so we can redact any injected secrets before returning
+    const contentLength = res.headers.get("Content-Length");
+    if (contentLength && parseInt(contentLength) > 10_000_000) {
+      logger.error(`Response too large: ${contentLength} bytes from ${fetchUrl}`);
+      return NextResponse.json({ error: "Response too large" }, { status: 413 });
+    }
+
     const startBuffer = Date.now();
     const responseBodyBuffer = await res.arrayBuffer();
     logger.debug(
       `Proxy: arrayBuffer read in ${Date.now() - startBuffer}ms, size: ${responseBodyBuffer.byteLength} bytes`,
     );
 
+    // Guard against chunked responses that omit Content-Length
+    if (responseBodyBuffer.byteLength > 10_000_000) {
+      logger.error(`Response too large: ${responseBodyBuffer.byteLength} bytes from ${fetchUrl}`);
+      return NextResponse.json({ error: "Response too large" }, { status: 413 });
+    }
+
     const startSanitize = Date.now();
-    const contentType = res.headers.get("Content-Type") || "";
     const bodyToReturn = sanitizeResponseBody(
       responseBodyBuffer,
       injectedData.secretValues,
@@ -80,13 +139,11 @@ export async function POST(req: NextRequest) {
     );
     logger.debug(`Proxy: sanitized in ${Date.now() - startSanitize}ms`);
 
-    const headers = fixHeaders(res.headers, bodyToReturn);
-
     logger.debug(`Proxy: about to return response`);
     return new NextResponse(bodyToReturn, {
       status: res.status,
       statusText: res.statusText,
-      headers,
+      headers: fixHeaders(res.headers, bodyToReturn),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -97,20 +154,23 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/**
- * Clone headers from the fetched response, but exclude problematic ones
- * Skip headers that don't apply when we're buffering/re-encoding the response
- * Set correct content-length for the buffered response
- */
-function fixHeaders(
-  responseHeaders: Headers,
-  body: string | ArrayBuffer,
-): Headers {
-  // Clone headers from the fetched response, but exclude problematic ones
+function resolveEnvVar(
+  key: string,
+  envVars: { key: string; value: string }[],
+): Promise<string> {
+  const match = envVars.find((v) => v.key === key);
+  if (!match) {
+    throw new Error(`no env var "${key}" for this project`);
+  }
+  return Promise.resolve(match.value);
+}
+
+// For streamed binary responses — strip encoding/length headers and let the
+// runtime set them appropriately for the piped stream.
+function stripEncodingHeaders(responseHeaders: Headers): Headers {
   const headers = new Headers();
   responseHeaders.forEach((value, key) => {
     const lowerKey = key.toLowerCase();
-    // Skip headers that don't apply when we're buffering/re-encoding the response
     if (
       lowerKey === "content-encoding" ||
       lowerKey === "transfer-encoding" ||
@@ -120,21 +180,16 @@ function fixHeaders(
     }
     headers.set(key, value);
   });
+  return headers;
+}
 
-  // Set correct content-length for the buffered response
+// For buffered text responses — recalculate Content-Length after redaction.
+function fixHeaders(responseHeaders: Headers, body: string | ArrayBuffer): Headers {
+  const headers = stripEncodingHeaders(responseHeaders);
   const bodySize =
     typeof body === "string"
       ? new TextEncoder().encode(body).length
       : body.byteLength;
   headers.set("Content-Length", bodySize.toString());
-
   return headers;
-}
-
-async function envVarReplacer(key: string): Promise<string> {
-  const val = process.env[key];
-  if (!val || val.length == 0) {
-    throw new Error(`no env var "${key}"`);
-  }
-  return val;
 }

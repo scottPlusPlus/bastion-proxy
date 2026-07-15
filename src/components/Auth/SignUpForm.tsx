@@ -4,14 +4,14 @@ import { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  signInWithEmailPassword,
+  registerWithEmailPassword,
   type AuthFormState,
 } from "@/lib/auth-actions";
 
-export function SignInForm() {
+export function SignUpForm() {
   const router = useRouter();
   const [state, formAction, pending] = useActionState<AuthFormState, FormData>(
-    signInWithEmailPassword,
+    registerWithEmailPassword,
     null
   );
 
@@ -24,17 +24,17 @@ export function SignInForm() {
 
   return (
     <form action={formAction} className="w-full space-y-3">
-      {state?.error && (
+      {state && "error" in state && state.error && (
         <div role="alert" className="alert alert-error alert-sm">
           <span>{state.error}</span>
         </div>
       )}
       <div className="form-control">
-        <label className="label" htmlFor="signin-email">
+        <label className="label" htmlFor="signup-email">
           <span className="label-text">Email</span>
         </label>
         <input
-          id="signin-email"
+          id="signup-email"
           name="email"
           type="email"
           autoComplete="email"
@@ -44,14 +44,29 @@ export function SignInForm() {
         />
       </div>
       <div className="form-control">
-        <label className="label" htmlFor="signin-password">
+        <label className="label" htmlFor="signup-password">
           <span className="label-text">Password</span>
         </label>
         <input
-          id="signin-password"
+          id="signup-password"
           name="password"
           type="password"
-          autoComplete="current-password"
+          autoComplete="new-password"
+          minLength={8}
+          className="input input-bordered w-full"
+          required
+        />
+      </div>
+      <div className="form-control">
+        <label className="label" htmlFor="signup-confirm-password">
+          <span className="label-text">Confirm password</span>
+        </label>
+        <input
+          id="signup-confirm-password"
+          name="confirmPassword"
+          type="password"
+          autoComplete="new-password"
+          minLength={8}
           className="input input-bordered w-full"
           required
         />
@@ -61,12 +76,12 @@ export function SignInForm() {
         className="btn btn-primary w-full"
         disabled={pending}
       >
-        {pending ? "Signing in…" : "Sign in"}
+        {pending ? "Creating account…" : "Create account"}
       </button>
       <p className="text-sm text-base-content/70">
-        Don&apos;t have an account?{" "}
-        <Link href="/signup" className="link link-primary">
-          Sign up
+        Already have an account?{" "}
+        <Link href="/login" className="link link-primary">
+          Sign in
         </Link>
       </p>
     </form>
