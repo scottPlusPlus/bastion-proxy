@@ -14,7 +14,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const fetchUrl: string = body.fetchUrl;
-    const openUrl: string = body.getUrl;
     const fetchData: RequestInit = body.requestInit ?? null;
     const secretKeys: Array<string> = body.secretKeys ?? [];
     const googleAuth: { credentialsKey: string; scopes: string[] } | undefined =
@@ -24,32 +23,8 @@ export async function POST(req: NextRequest) {
     if (!project) {
       return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
     }
-    if (!fetchUrl && !openUrl) {
-      return NextResponse.json({ error: "Missing fetchUrl or getUrl" }, { status: 400 });
-    }
-
-    // getUrl: inject secrets into a URL and return it — no HTTP request is made.
-    // Use this when the URL will be opened by a browser (e.g. OAuth redirects).
-    // Only non-secret env vars are allowed — the resolved value is returned to the caller.
-    if (openUrl) {
-      const secretVar = secretKeys.find((k) => project.envVars.find((v) => v.key === k && v.isSecret));
-      if (secretVar) {
-        return NextResponse.json(
-          { error: `Cannot use secret env var "${secretVar}" in getUrl — resolved value would be returned to caller` },
-          { status: 400 },
-        );
-      }
-      let injectedData;
-      try {
-        injectedData = await injectRequestData(openUrl, undefined, secretKeys, (key) =>
-          resolveEnvVar(key, project.envVars),
-        );
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return NextResponse.json({ error: "Error: " + message }, { status: 400 });
-      }
-      logger.info("Proxy getUrl", { project: project.name, targetUrl: openUrl });
-      return NextResponse.json({ url: injectedData.url });
+    if (!fetchUrl) {
+      return NextResponse.json({ error: "Missing fetchUrl" }, { status: 400 });
     }
     if (fetchData && !isValidRequestInit(fetchData)) {
       return NextResponse.json({ error: "Invalid fetch data" }, { status: 400 });
