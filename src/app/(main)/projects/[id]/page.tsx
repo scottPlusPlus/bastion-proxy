@@ -3,6 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/crypto";
 import Link from "next/link";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { RenameProjectForm } from "@/components/Project/RenameProjectForm";
 import { ApiKeyDisplay } from "@/components/Project/EnvVars/ApiKeyDisplay";
 import { EnvVarTable } from "@/components/Project/EnvVars/EnvVarTable";
@@ -46,21 +47,26 @@ export default async function ProjectPage({ params }: Props) {
   const upsertAction = upsertEnvVar.bind(null, id);
 
   return (
-    <div className="max-w-4xl w-full mx-auto p-6 space-y-8">
-      <Link
-        href="/projects"
-        className="text-sm text-base-content/60 hover:text-base-content"
-      >
-        ← Projects
-      </Link>
+    <div className="max-w-5xl w-full mx-auto p-6 space-y-8">
+      <Breadcrumbs
+        crumbs={[
+          { label: "Projects", href: "/projects" },
+          { label: project.name },
+        ]}
+      />
 
-      {/* Name + delete */}
+      {/* Name + actions */}
       <div className="flex items-start justify-between gap-4">
         <RenameProjectForm id={id} currentName={project.name} />
-        <DeleteProjectButton
-          projectName={project.name}
-          deleteAction={deleteAction}
-        />
+        <div className="flex items-center gap-2">
+          <Link href={`/projects/${id}/audit`} className="btn btn-ghost btn-sm">
+            Audit log
+          </Link>
+          <DeleteProjectButton
+            projectName={project.name}
+            deleteAction={deleteAction}
+          />
+        </div>
       </div>
 
       {/* API Key */}
@@ -80,7 +86,6 @@ export default async function ProjectPage({ params }: Props) {
         <div className="card bg-base-200 p-4">
           <EnvVarTable
             envVars={displayEnvVars}
-            projectId={id}
             upsertAction={upsertAction}
           />
         </div>

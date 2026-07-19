@@ -3,6 +3,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { encrypt } from "@/lib/crypto";
+import { writeAuditLog } from "@/lib/audit";
 import { nanoid } from "nanoid";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -104,10 +105,21 @@ export async function upsertEnvVar(
     });
     if (!project) return { error: "Project not found" };
 
+    const existing = await prisma.envVar.findUnique({
+      where: { projectId_key: { projectId, key } },
+      select: { id: true },
+    });
+
     await prisma.envVar.upsert({
       where: { projectId_key: { projectId, key } },
       create: { projectId, key, value: encrypt(value), isSecret },
       update: { value: encrypt(value) }, // preserve existing isSecret on update
+    });
+
+    await writeAuditLog({
+      action: existing ? "ENV_VAR_UPDATE" : "ENV_VAR_CREATE",
+      projectId,
+      envVarKey: key,
     });
 
     revalidatePath(`/projects/${projectId}`);
@@ -131,17 +143,21 @@ export async function updateEnvVarValue(id: string, formData: FormData) {
   if (!envVar || envVar.project.userId !== userId) throw new Error("Not found");
 
   await prisma.envVar.update({ where: { id }, data: { value: encrypt(value) } });
+  await writeAuditLog({
+    action: "ENV_VAR_UPDATE",
+    projectId: envVar.project.id,
+    envVarKey: envVar.key,
+  });
   revalidatePath(`/projects/${envVar.project.id}`);
 }
 
 export async function deleteEnvVar(formData: FormData) {
   const userId = await requireUserId();
   const id = String(formData.get("id"));
-  const projectId = String(formData.get("projectId"));
 
   const envVar = await prisma.envVar.findUnique({
     where: { id },
-    include: { project: { select: { userId: true } } },
+    include: { project: { select: { id: true, userId: true } } },
   });
 
   if (!envVar || envVar.project.userId !== userId) {
@@ -149,5 +165,10 @@ export async function deleteEnvVar(formData: FormData) {
   }
 
   await prisma.envVar.delete({ where: { id } });
-  revalidatePath(`/projects/${projectId}`);
+  await writeAuditLog({
+    action: "ENV_VAR_DELETE",
+    projectId: envVar.project.id,
+    envVarKey: envVar.key,
+  });
+  revalidatePath(`/projects/${envVar.project.id}`);
 }

@@ -59,14 +59,15 @@ model VerificationToken {
 // ─── Projects ───────────────────────────────────────────────
 
 model Project {
-  id        String   @id @default(cuid())
+  id        String     @id @default(cuid())
   name      String
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   apiKey    ApiKey?
   envVars   EnvVar[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  auditLogs AuditLog[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }
 
 model ApiKey {
@@ -88,4 +89,22 @@ model EnvVar {
   updatedAt DateTime @updatedAt
 
   @@unique([projectId, key])
+}
+
+// ─── Audit ──────────────────────────────────────────────────
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // ENV_VAR_CREATE | ENV_VAR_UPDATE | ENV_VAR_DELETE | PROXY_CALL
+  action        String
+  // ENV_VAR_* fields
+  envVarKey     String?
+  // PROXY_CALL fields
+  targetUrl     String?
+  requestBytes  Int?
+  responseBytes Int?
+  secretKeys    String?  // comma-separated list of key names accessed
+  createdAt     DateTime @default(now())
 }

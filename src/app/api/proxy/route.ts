@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger/logger";
 import {
   isValidRequestInit,
@@ -8,9 +8,13 @@ import {
 } from "@/lib/proxy/utils";
 import { getGoogleAccessToken } from "@/lib/proxy/google-auth";
 import { getProjectFromReq } from "@/lib/proxy/get-project";
+import { writeAuditLog } from "@/lib/audit";
 
 export async function POST(req: NextRequest) {
   logger.debug(`handle api/proxy`);
+  const requestBytes = req.headers.get("content-length")
+    ? parseInt(req.headers.get("content-length")!)
+    : null;
   try {
     const body = await req.json();
     const fetchUrl: string = body.fetchUrl;
@@ -44,6 +48,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Error: " + message }, { status: 400 });
     }
 
+    // All env var keys accessed during this request (secretKeys + googleAuth credential)
+    const accessedKeys: string[] = [...secretKeys];
+
     if (googleAuth?.credentialsKey) {
       const envVar = project.envVars.find((v) => v.key === googleAuth.credentialsKey);
       if (!envVar) {
@@ -64,9 +71,10 @@ export async function POST(req: NextRequest) {
         },
         secretValues: [...injectedData.secretValues, token],
       };
+      accessedKeys.push(googleAuth.credentialsKey);
     }
 
-    logger.info(`Proxy`, { project: project.name, targetUrl: fetchUrl, keys: secretKeys });
+    logger.info(`Proxy`, { project: project.name, targetUrl: fetchUrl, keys: accessedKeys });
 
     const res = await fetch(injectedData.url, injectedData.requestInit);
     logger.debug(`Proxy has response from ${fetchUrl}, status: ${res.status}`);
@@ -80,6 +88,21 @@ export async function POST(req: NextRequest) {
     if (!isTextBased) {
       // Binary response — stream directly, no buffering or secret redaction needed
       logger.debug(`Proxy: streaming binary response (${contentType})`);
+      const upstreamLength = res.headers.get("content-length");
+      after(async () => {
+        try {
+          await writeAuditLog({
+            action: "PROXY_CALL",
+            projectId: project.id,
+            targetUrl: fetchUrl,
+            requestBytes,
+            responseBytes: upstreamLength ? parseInt(upstreamLength) : null,
+            secretKeys: accessedKeys,
+          });
+        } catch (error) {
+          logger.error(`Failed to write proxy audit log: ${String(error)}`);
+        }
+      });
       return new NextResponse(res.body, {
         status: res.status,
         statusText: res.statusText,
@@ -115,6 +138,20 @@ export async function POST(req: NextRequest) {
     logger.debug(`Proxy: sanitized in ${Date.now() - startSanitize}ms`);
 
     logger.debug(`Proxy: about to return response`);
+    after(async () => {
+      try {
+        await writeAuditLog({
+          action: "PROXY_CALL",
+          projectId: project.id,
+          targetUrl: fetchUrl,
+          requestBytes,
+          responseBytes: responseBodyBuffer.byteLength,
+          secretKeys: accessedKeys,
+        });
+      } catch (error) {
+        logger.error(`Failed to write proxy audit log: ${String(error)}`);
+      }
+    });
     return new NextResponse(bodyToReturn, {
       status: res.status,
       statusText: res.statusText,

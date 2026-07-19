@@ -14,14 +14,13 @@ export interface DisplayEnvVar {
 
 interface Props {
   envVars: DisplayEnvVar[];
-  projectId: string;
   upsertAction: (
     prevState: { error: string } | null,
     formData: FormData,
   ) => Promise<{ error: string } | null>;
 }
 
-export function EnvVarTable({ envVars, projectId, upsertAction }: Props) {
+export function EnvVarTable({ envVars, upsertAction }: Props) {
   const [pending, setPending] = useState<DisplayEnvVar | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
@@ -191,7 +190,6 @@ export function EnvVarTable({ envVars, projectId, upsertAction }: Props) {
               }}
             >
               <input type="hidden" name="id" value={pending?.id ?? ""} />
-              <input type="hidden" name="projectId" value={projectId} />
               <button type="submit" className="btn btn-error">
                 Delete
               </button>
