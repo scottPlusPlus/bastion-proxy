@@ -82,6 +82,9 @@ const ACTION_STYLES: Record<AuditAction, string> = {
   ENV_VAR_CREATE: "badge-success",
   ENV_VAR_UPDATE: "badge-warning",
   ENV_VAR_DELETE: "badge-error",
+  ENV_VAR_LOCK: "badge-neutral",
+  ENV_VAR_UNLOCK: "badge-neutral",
+  ENV_VARS_DUPLICATE: "badge-secondary",
   PROXY_CALL: "badge-info",
 };
 
@@ -89,6 +92,9 @@ const ACTION_LABELS: Record<AuditAction, string> = {
   ENV_VAR_CREATE: "Env var created",
   ENV_VAR_UPDATE: "Env var updated",
   ENV_VAR_DELETE: "Env var deleted",
+  ENV_VAR_LOCK: "Var locked",
+  ENV_VAR_UNLOCK: "Var unlocked",
+  ENV_VARS_DUPLICATE: "Vars duplicated",
   PROXY_CALL: "Proxy call",
 };
 

@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { AuditTable } from "@/components/Project/Audit/AuditTable";

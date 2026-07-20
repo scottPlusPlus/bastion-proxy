@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node scripts/run-next.mjs",
-    "build": "next build",
+    "dev": "prisma generate && node scripts/run-next.mjs",
+    "build": "prisma generate && next build",
+    "postinstall": "prisma generate",
     "start": "node scripts/run-next.mjs start",
     "lint": "eslint",
     "test": "vitest"

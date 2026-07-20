@@ -16,7 +16,7 @@ export async function getProjectFromReq(req: NextRequest) {
 
   const record = await prisma.apiKey.findUnique({
     where: { key: header },
-    include: { project: { include: { envVars: true } } },
+    include: { permissions: true, project: { include: { envVars: true } } },
   });
 
   if (!record?.project) return null;
@@ -25,6 +25,7 @@ export async function getProjectFromReq(req: NextRequest) {
     ...record.project,
     apiKeyId: record.id,
     apiKeyName: record.name,
+    apiKeyPermissions: record.permissions,
     envVars: record.project.envVars.map((v) => ({
       ...v,
       value: decrypt(v.value),

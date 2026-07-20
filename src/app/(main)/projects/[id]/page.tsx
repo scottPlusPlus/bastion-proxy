@@ -11,9 +11,11 @@ import { DeleteProjectButton } from "@/components/Project/DeleteProjectButton";
 import {
   deleteProject,
   createApiKey,
+  updateApiKeyPermissions,
   regenerateApiKey,
   deleteApiKey,
   upsertEnvVar,
+  duplicateEnvVars,
 } from "@/lib/project-actions";
 import type { DisplayEnvVar } from "@/components/Project/EnvVars/EnvVarTable";
 
@@ -26,13 +28,20 @@ export default async function ProjectPage({ params }: Props) {
   const session = await auth();
   if (!session?.user?.id) redirect("/login");
 
-  const project = await prisma.project.findUnique({
-    where: { id, userId: session.user.id },
-    include: {
-      apiKeys: { orderBy: { createdAt: "asc" } },
-      envVars: { orderBy: { key: "asc" } },
-    },
-  });
+  const [project, otherProjects] = await Promise.all([
+    prisma.project.findUnique({
+      where: { id, userId: session.user.id },
+      include: {
+        apiKeys: { orderBy: { createdAt: "asc" }, include: { permissions: true } },
+        envVars: { orderBy: { key: "asc" } },
+      },
+    }),
+    prisma.project.findMany({
+      where: { userId: session.user.id, NOT: { id } },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
 
   if (!project) notFound();
 
@@ -42,11 +51,13 @@ export default async function ProjectPage({ params }: Props) {
     key: v.key,
     value: v.isSecret ? null : decrypt(v.value),
     isSecret: v.isSecret,
+    locked: v.locked,
   }));
 
   const deleteAction = deleteProject.bind(null, id);
   const createKeyAction = createApiKey.bind(null, id);
   const upsertAction = upsertEnvVar.bind(null, id);
+  const duplicateAction = duplicateEnvVars.bind(null, id);
 
   return (
     <div className="max-w-5xl w-full mx-auto p-6 space-y-8">
@@ -78,6 +89,7 @@ export default async function ProjectPage({ params }: Props) {
           <ApiKeyList
             apiKeys={project.apiKeys}
             createKeyAction={createKeyAction}
+            updatePermissionsAction={updateApiKeyPermissions}
             regenerateAction={regenerateApiKey}
             deleteAction={deleteApiKey}
           />
@@ -91,6 +103,8 @@ export default async function ProjectPage({ params }: Props) {
           <EnvVarTable
             envVars={displayEnvVars}
             upsertAction={upsertAction}
+            duplicateAction={duplicateAction}
+            otherProjects={otherProjects}
           />
         </div>
       </div>

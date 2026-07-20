@@ -11,5 +11,12 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    globalSetup: ['./test/global-setup.ts'],
+    setupFiles: ['./test/setup.ts'],
+    fileParallelism: false, // prevent SQLite lock contention across workers
+    env: {
+      DATABASE_URL: 'file:./test.db',
+      AUTH_SECRET: 'test-secret-for-vitest-32chars!!',
+    },
   },
 })

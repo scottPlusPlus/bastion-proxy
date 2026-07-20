@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { encrypt } from "@/lib/crypto";
 import { writeAuditLog } from "@/lib/audit";
 import { nanoid } from "nanoid";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
 async function requireUserId(): Promise<string> {
@@ -30,7 +30,13 @@ export async function createProject(formData: FormData) {
     data: {
       name,
       userId,
-      apiKeys: { create: { name: "Default", key: generateApiKey() } },
+      apiKeys: {
+        create: {
+          name: "Default",
+          key: generateApiKey(),
+          permissions: { create: [{ resource: "ENV", action: "READ" }] },
+        },
+      },
     },
   });
 
@@ -62,17 +68,68 @@ export async function deleteProject(id: string) {
 
 // ─── API Keys ───────────────────────────────────────────────
 
-export async function createApiKey(projectId: string, formData: FormData) {
-  const userId = await requireUserId();
-  const name = String(formData.get("name") ?? "").trim();
-  if (!name) throw new Error("Name is required");
-  if (name.length > 100) throw new Error("Name must be 100 characters or less");
+export async function createApiKey(
+  projectId: string,
+  formData: FormData,
+): Promise<{ error: string } | null> {
+  try {
+    const userId = await requireUserId();
+    const name = String(formData.get("name") ?? "").trim();
+    if (!name) return { error: "Name is required" };
+    if (name.length > 100) return { error: "Name must be 100 characters or less" };
 
-  const project = await prisma.project.findUnique({ where: { id: projectId, userId } });
-  if (!project) throw new Error("Project not found");
+    const project = await prisma.project.findUnique({ where: { id: projectId, userId } });
+    if (!project) return { error: "Project not found" };
 
-  await prisma.apiKey.create({ data: { projectId, name, key: generateApiKey() } });
-  revalidatePath(`/projects/${projectId}`);
+    const perms: { resource: string; action: string }[] = [];
+    if (formData.get("perm_env_read")) perms.push({ resource: "ENV", action: "READ" });
+    if (formData.get("perm_env_create")) perms.push({ resource: "ENV", action: "CREATE" });
+    if (formData.get("perm_env_update")) perms.push({ resource: "ENV", action: "UPDATE" });
+    if (formData.get("perm_env_delete")) perms.push({ resource: "ENV", action: "DELETE" });
+    if (perms.length === 0) return { error: "At least one permission is required" };
+
+    await prisma.apiKey.create({
+      data: { projectId, name, key: generateApiKey(), permissions: { create: perms } },
+    });
+    revalidatePath(`/projects/${projectId}`);
+    return null;
+  } catch (err) {
+    unstable_rethrow(err);
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function updateApiKeyPermissions(
+  keyId: string,
+  formData: FormData,
+): Promise<{ error: string } | null> {
+  try {
+    const userId = await requireUserId();
+
+    const apiKey = await prisma.apiKey.findUnique({
+      where: { id: keyId },
+      include: { project: { select: { id: true, userId: true } } },
+    });
+    if (!apiKey || apiKey.project.userId !== userId) return { error: "Not found" };
+
+    const perms: { resource: string; action: string }[] = [];
+    if (formData.get("perm_env_read")) perms.push({ resource: "ENV", action: "READ" });
+    if (formData.get("perm_env_create")) perms.push({ resource: "ENV", action: "CREATE" });
+    if (formData.get("perm_env_update")) perms.push({ resource: "ENV", action: "UPDATE" });
+    if (formData.get("perm_env_delete")) perms.push({ resource: "ENV", action: "DELETE" });
+    if (perms.length === 0) return { error: "At least one permission is required" };
+
+    await prisma.$transaction([
+      prisma.apiKeyPermission.deleteMany({ where: { apiKeyId: keyId } }),
+      prisma.apiKeyPermission.createMany({ data: perms.map((p) => ({ apiKeyId: keyId, ...p })) }),
+    ]);
+
+    revalidatePath(`/projects/${apiKey.project.id}`);
+    return null;
+  } catch (err) {
+    unstable_rethrow(err);
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 export async function regenerateApiKey(keyId: string) {
@@ -183,6 +240,117 @@ export async function updateEnvVarValue(id: string, formData: FormData) {
     envVarKey: envVar.key,
   });
   revalidatePath(`/projects/${envVar.project.id}`);
+}
+
+export async function toggleEnvVarLocked(id: string) {
+  const userId = await requireUserId();
+
+  const envVar = await prisma.envVar.findUnique({
+    where: { id },
+    include: { project: { select: { id: true, userId: true } } },
+  });
+  if (!envVar || envVar.project.userId !== userId) throw new Error("Not found");
+
+  await prisma.envVar.update({ where: { id }, data: { locked: !envVar.locked } });
+  await writeAuditLog({
+    action: envVar.locked ? "ENV_VAR_UNLOCK" : "ENV_VAR_LOCK",
+    projectId: envVar.project.id,
+    envVarKey: envVar.key,
+  });
+  revalidatePath(`/projects/${envVar.project.id}`);
+}
+
+export async function duplicateEnvVars(
+  sourceProjectId: string,
+  formData: FormData,
+): Promise<{ error: string } | null> {
+  try {
+    const userId = await requireUserId();
+
+    const sourceProject = await prisma.project.findUnique({
+      where: { id: sourceProjectId, userId },
+      include: { envVars: true },
+    });
+    if (!sourceProject) return { error: "Source project not found" };
+
+    const targetType = String(formData.get("targetType") ?? "");
+
+    if (targetType === "existing") {
+      const targetProjectId = String(formData.get("targetProjectId") ?? "").trim();
+      if (!targetProjectId) return { error: "Please select a target project" };
+      if (targetProjectId === sourceProjectId) return { error: "Cannot duplicate to the same project" };
+
+      const targetProject = await prisma.project.findUnique({
+        where: { id: targetProjectId, userId },
+      });
+      if (!targetProject) return { error: "Target project not found" };
+
+      if (sourceProject.envVars.length > 0) {
+        await prisma.$transaction(
+          sourceProject.envVars.map((v) =>
+            prisma.envVar.upsert({
+              where: { projectId_key: { projectId: targetProjectId, key: v.key } },
+              create: { projectId: targetProjectId, key: v.key, value: v.value, isSecret: v.isSecret, locked: v.locked },
+              update: { value: v.value, isSecret: v.isSecret, locked: v.locked },
+            }),
+          ),
+        );
+      }
+
+      await writeAuditLog({
+        action: "ENV_VARS_DUPLICATE",
+        projectId: sourceProjectId,
+        targetProjectName: targetProject.name,
+        varCount: sourceProject.envVars.length,
+      });
+
+      revalidatePath(`/projects/${targetProjectId}`);
+      return null;
+    }
+
+    if (targetType === "new") {
+      const newProjectName = String(formData.get("newProjectName") ?? "").trim();
+      if (!newProjectName) return { error: "Project name is required" };
+      if (newProjectName.length > 100) return { error: "Name must be 100 characters or less" };
+
+      const newProject = await prisma.project.create({
+        data: {
+          name: newProjectName,
+          userId,
+          apiKeys: {
+            create: {
+              name: "Default",
+              key: generateApiKey(),
+              permissions: { create: [{ resource: "ENV", action: "READ" }] },
+            },
+          },
+          envVars: {
+            create: sourceProject.envVars.map((v) => ({
+              key: v.key,
+              value: v.value,
+              isSecret: v.isSecret,
+              locked: v.locked,
+            })),
+          },
+        },
+      });
+
+      await writeAuditLog({
+        action: "ENV_VARS_DUPLICATE",
+        projectId: sourceProjectId,
+        targetProjectName: newProjectName,
+        varCount: sourceProject.envVars.length,
+      });
+
+      revalidatePath("/projects");
+      redirect(`/projects/${newProject.id}`);
+    }
+
+    return { error: "Invalid target type" };
+  } catch (err) {
+    if ((err as { digest?: string }).digest?.startsWith("NEXT_REDIRECT")) throw err;
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 export async function deleteEnvVar(formData: FormData) {

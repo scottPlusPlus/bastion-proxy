@@ -1,8 +1,9 @@
 "use client";
 
-import { useActionState, useRef, useState } from "react";
-import { deleteEnvVar, updateEnvVarValue } from "@/lib/project-actions";
+import { useActionState, useRef, useState, useTransition } from "react";
+import { deleteEnvVar, updateEnvVarValue, toggleEnvVarLocked } from "@/lib/project-actions";
 import { Tooltip } from "@/components/Tooltip";
+import { DuplicateEnvVarsButton } from "./DuplicateEnvVarsButton";
 
 export interface DisplayEnvVar {
   id: string;
@@ -10,6 +11,7 @@ export interface DisplayEnvVar {
   /** null when isSecret=true — value is never sent to client */
   value: string | null;
   isSecret: boolean;
+  locked: boolean;
 }
 
 interface Props {
@@ -18,14 +20,18 @@ interface Props {
     prevState: { error: string } | null,
     formData: FormData,
   ) => Promise<{ error: string } | null>;
+  duplicateAction?: (formData: FormData) => Promise<{ error: string } | null>;
+  otherProjects?: { id: string; name: string }[];
 }
 
-export function EnvVarTable({ envVars, upsertAction }: Props) {
+export function EnvVarTable({ envVars, upsertAction, duplicateAction, otherProjects }: Props) {
   const [pending, setPending] = useState<DisplayEnvVar | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [addState, addFormAction] = useActionState(upsertAction, null);
+  const [lockingId, setLockingId] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
 
   const visibleVars = envVars.filter((v) => !v.isSecret);
   const secretCount = envVars.length - visibleVars.length;
@@ -33,6 +39,14 @@ export function EnvVarTable({ envVars, upsertAction }: Props) {
   function openDelete(v: DisplayEnvVar) {
     setPending(v);
     dialogRef.current?.showModal();
+  }
+
+  function handleToggleLock(v: DisplayEnvVar) {
+    setLockingId(v.id);
+    startTransition(async () => {
+      await toggleEnvVarLocked(v.id);
+      setLockingId(null);
+    });
   }
 
   function handleCopyAll() {
@@ -53,15 +67,23 @@ export function EnvVarTable({ envVars, upsertAction }: Props) {
                   {secretCount} secret{secretCount > 1 ? "s" : ""} excluded from copy
                 </span>
               )}
-              {visibleVars.length > 0 && (
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-xs ml-auto"
-                  onClick={handleCopyAll}
-                >
-                  {copiedAll ? "Copied!" : "Copy all"}
-                </button>
-              )}
+              <div className="flex items-center gap-1 ml-auto">
+                {visibleVars.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-xs"
+                    onClick={handleCopyAll}
+                  >
+                    {copiedAll ? "Copied!" : "Copy all"}
+                  </button>
+                )}
+                {duplicateAction && (
+                  <DuplicateEnvVarsButton
+                    duplicateAction={duplicateAction}
+                    otherProjects={otherProjects ?? []}
+                  />
+                )}
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -69,7 +91,12 @@ export function EnvVarTable({ envVars, upsertAction }: Props) {
                 <thead>
                   <tr>
                     <th className="w-1/3">Key</th>
-                    <th className="w-1/2">Value</th>
+                    <th className="w-2/5">Value</th>
+                    <th className="w-16 text-center">
+                      <Tooltip content="Locked vars cannot be changed or deleted via the API" placement="top">
+                        <span>Lock</span>
+                      </Tooltip>
+                    </th>
                     <th></th>
                   </tr>
                 </thead>
@@ -101,6 +128,21 @@ export function EnvVarTable({ envVars, upsertAction }: Props) {
                               />
                             )}
                           </div>
+                        </td>
+                        <td className="text-center">
+                          <Tooltip
+                            content={v.locked ? "Unlock (allow API changes)" : "Lock (prevent API changes)"}
+                            placement="top"
+                          >
+                            <button
+                              className={`btn btn-ghost btn-xs ${v.locked ? "text-warning" : "text-base-content/30"}`}
+                              onClick={() => handleToggleLock(v)}
+                              disabled={lockingId === v.id}
+                              aria-label={v.locked ? "Unlock" : "Lock"}
+                            >
+                              <LockIcon />
+                            </button>
+                          </Tooltip>
                         </td>
                         <td className="text-right">
                           <div className="flex gap-1 justify-end">

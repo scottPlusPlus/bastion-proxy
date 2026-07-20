@@ -1,17 +1,25 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { PermissionCheckboxes } from "./PermissionCheckboxes";
+
+export interface DisplayApiKeyPermission {
+  resource: string;
+  action: string;
+}
 
 export interface DisplayApiKey {
   id: string;
   name: string;
   key: string;
   createdAt: Date;
+  permissions: DisplayApiKeyPermission[];
 }
 
 interface Props {
   apiKeys: DisplayApiKey[];
-  createKeyAction: (formData: FormData) => Promise<void>;
+  createKeyAction: (formData: FormData) => Promise<{ error: string } | null>;
+  updatePermissionsAction: (keyId: string, formData: FormData) => Promise<{ error: string } | null>;
   regenerateAction: (keyId: string) => Promise<void>;
   deleteAction: (keyId: string) => Promise<void>;
 }
@@ -21,12 +29,53 @@ function maskKey(key: string): string {
   return key.slice(0, 6) + "**********" + key.slice(-4);
 }
 
-export function ApiKeyList({ apiKeys, createKeyAction, regenerateAction, deleteAction }: Props) {
+const PERMISSION_LABEL: Record<string, string> = {
+  "ENV:READ": "Proxy",
+  "ENV:CREATE": "Create",
+  "ENV:UPDATE": "Update",
+  "ENV:DELETE": "Delete",
+};
+
+const PERMISSION_ORDER: Record<string, number> = {
+  "ENV:READ": 0,
+  "ENV:CREATE": 1,
+  "ENV:UPDATE": 2,
+  "ENV:DELETE": 3,
+};
+
+function PermissionBadges({ permissions }: { permissions: DisplayApiKeyPermission[] }) {
+  if (permissions.length === 0) {
+    return <span className="text-xs text-base-content/40">none</span>;
+  }
+  const sorted = [...permissions].sort((a, b) => {
+    const ka = `${a.resource}:${a.action}`;
+    const kb = `${b.resource}:${b.action}`;
+    return (PERMISSION_ORDER[ka] ?? 99) - (PERMISSION_ORDER[kb] ?? 99);
+  });
+  return (
+    <div className="flex flex-wrap gap-1">
+      {sorted.map((p) => {
+        const key = `${p.resource}:${p.action}`;
+        return (
+          <span key={key} className="badge badge-sm badge-ghost font-mono">
+            {PERMISSION_LABEL[key] ?? key}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+export function ApiKeyList({ apiKeys, createKeyAction, updatePermissionsAction, regenerateAction, deleteAction }: Props) {
   const addDialogRef = useRef<HTMLDialogElement>(null);
   const regenDialogRef = useRef<HTMLDialogElement>(null);
   const deleteDialogRef = useRef<HTMLDialogElement>(null);
+  const permsDialogRef = useRef<HTMLDialogElement>(null);
   const [pending, setPending] = useState<DisplayApiKey | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [permsError, setPermsError] = useState<string | null>(null);
+  const [permissionsDialogVersion, setPermissionsDialogVersion] = useState(0);
 
   async function handleCopy(key: DisplayApiKey) {
     await navigator.clipboard.writeText(key.key);
@@ -44,6 +93,13 @@ export function ApiKeyList({ apiKeys, createKeyAction, regenerateAction, deleteA
     deleteDialogRef.current?.showModal();
   }
 
+  function openPerms(key: DisplayApiKey) {
+    setPermsError(null);
+    setPending(key);
+    setPermissionsDialogVersion((version) => version + 1);
+    permsDialogRef.current?.showModal();
+  }
+
   const canDelete = apiKeys.length > 1;
 
   return (
@@ -55,6 +111,7 @@ export function ApiKeyList({ apiKeys, createKeyAction, regenerateAction, deleteA
               <tr>
                 <th>Name</th>
                 <th>Key</th>
+                <th>Permissions</th>
                 <th>Created</th>
                 <th></th>
               </tr>
@@ -68,6 +125,9 @@ export function ApiKeyList({ apiKeys, createKeyAction, regenerateAction, deleteA
                       {maskKey(k.key)}
                     </code>
                   </td>
+                  <td>
+                    <PermissionBadges permissions={k.permissions} />
+                  </td>
                   <td className="text-sm text-base-content/60 whitespace-nowrap">
                     {new Date(k.createdAt).toLocaleDateString()}
                   </td>
@@ -78,6 +138,12 @@ export function ApiKeyList({ apiKeys, createKeyAction, regenerateAction, deleteA
                         onClick={() => handleCopy(k)}
                       >
                         {copiedId === k.id ? "Copied!" : "Copy"}
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-xs"
+                        onClick={() => openPerms(k)}
+                      >
+                        Permissions
                       </button>
                       <button
                         className="btn btn-ghost btn-xs"
@@ -117,7 +183,9 @@ export function ApiKeyList({ apiKeys, createKeyAction, regenerateAction, deleteA
           <h3 className="text-lg font-bold">Add API key</h3>
           <form
             action={async (fd) => {
-              await createKeyAction(fd);
+              setCreateError(null);
+              const result = await createKeyAction(fd);
+              if (result?.error) { setCreateError(result.error); return; }
               addDialogRef.current?.close();
             }}
             className="mt-4 space-y-4"
@@ -136,16 +204,59 @@ export function ApiKeyList({ apiKeys, createKeyAction, regenerateAction, deleteA
                 autoFocus
               />
             </div>
+            <div>
+              <p className="label-text mb-2 font-medium">Permissions</p>
+              <PermissionCheckboxes />
+            </div>
+            {createError && <p className="text-error text-sm">{createError}</p>}
             <div className="modal-action mt-0">
               <button
                 type="button"
                 className="btn"
-                onClick={() => addDialogRef.current?.close()}
+                onClick={() => { setCreateError(null); addDialogRef.current?.close(); }}
               >
                 Cancel
               </button>
               <button type="submit" className="btn btn-primary">
                 Create
+              </button>
+            </div>
+          </form>
+        </div>
+        <form method="dialog" className="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+
+      {/* Edit permissions dialog */}
+      <dialog ref={permsDialogRef} className="modal">
+        <div className="modal-box">
+          <h3 className="text-lg font-bold">Permissions for &ldquo;{pending?.name}&rdquo;</h3>
+          <form
+            action={async (fd) => {
+              if (!pending) return;
+              setPermsError(null);
+              const result = await updatePermissionsAction(pending.id, fd);
+              if (result?.error) { setPermsError(result.error); return; }
+              permsDialogRef.current?.close();
+            }}
+            className="mt-4 space-y-4"
+          >
+            <PermissionCheckboxes
+              key={permissionsDialogVersion}
+              current={pending?.permissions}
+            />
+            {permsError && <p className="text-error text-sm">{permsError}</p>}
+            <div className="modal-action mt-0">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => { setPermsError(null); permsDialogRef.current?.close(); }}
+              >
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary">
+                Save
               </button>
             </div>
           </form>

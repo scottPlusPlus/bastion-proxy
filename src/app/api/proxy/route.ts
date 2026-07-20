@@ -9,6 +9,7 @@ import {
 import { getGoogleAccessToken } from "@/lib/proxy/google-auth";
 import { getProjectFromReq } from "@/lib/proxy/get-project";
 import { writeAuditLog } from "@/lib/audit";
+import { hasPermission } from "@/lib/permissions";
 
 export async function POST(req: NextRequest) {
   logger.debug(`handle api/proxy`);
@@ -26,6 +27,12 @@ export async function POST(req: NextRequest) {
     const project = await getProjectFromReq(req);
     if (!project) {
       return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
+    }
+    if (!hasPermission(project.apiKeyPermissions, "ENV", "READ")) {
+      return NextResponse.json(
+        { error: "This API key does not have proxy access" },
+        { status: 403 },
+      );
     }
     if (!fetchUrl) {
       return NextResponse.json({ error: "Missing fetchUrl" }, { status: 400 });
