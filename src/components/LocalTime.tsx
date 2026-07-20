@@ -6,10 +6,13 @@ interface Props {
 }
 
 export function LocalTime({ date, className }: Props) {
-  const formatted = new Date(date).toLocaleString(undefined, {
+  const d = new Date(date);
+  const datePart = d.toLocaleDateString(undefined, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+  });
+  const timePart = d.toLocaleTimeString(undefined, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -17,8 +20,9 @@ export function LocalTime({ date, className }: Props) {
   });
 
   return (
-    <time dateTime={new Date(date).toISOString()} className={className} suppressHydrationWarning>
-      {formatted}
+    <time dateTime={d.toISOString()} className={className} suppressHydrationWarning>
+      <span className="block">{datePart}</span>
+      <span className="block text-base-content/40">{timePart}</span>
     </time>
   );
 }

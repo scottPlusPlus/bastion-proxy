@@ -15,6 +15,8 @@ export interface EnvVarAuditParams {
 export interface ProxyCallAuditParams {
   action: "PROXY_CALL";
   projectId: string;
+  apiKeyId: string;
+  apiKeyName: string;
   targetUrl: string;
   requestBytes: number | null;
   responseBytes: number | null;
@@ -29,6 +31,8 @@ export async function writeAuditLog(params: AuditParams): Promise<void> {
       data: {
         projectId: params.projectId,
         action: params.action,
+        apiKeyId: params.apiKeyId,
+        apiKeyName: params.apiKeyName,
         targetUrl: params.targetUrl,
         requestBytes: params.requestBytes,
         responseBytes: params.responseBytes,

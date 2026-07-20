@@ -5,12 +5,14 @@ import { decrypt } from "@/lib/crypto";
 import Link from "next/link";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { RenameProjectForm } from "@/components/Project/RenameProjectForm";
-import { ApiKeyDisplay } from "@/components/Project/EnvVars/ApiKeyDisplay";
+import { ApiKeyList } from "@/components/Project/EnvVars/ApiKeyList";
 import { EnvVarTable } from "@/components/Project/EnvVars/EnvVarTable";
 import { DeleteProjectButton } from "@/components/Project/DeleteProjectButton";
 import {
   deleteProject,
+  createApiKey,
   regenerateApiKey,
+  deleteApiKey,
   upsertEnvVar,
 } from "@/lib/project-actions";
 import type { DisplayEnvVar } from "@/components/Project/EnvVars/EnvVarTable";
@@ -27,7 +29,7 @@ export default async function ProjectPage({ params }: Props) {
   const project = await prisma.project.findUnique({
     where: { id, userId: session.user.id },
     include: {
-      apiKey: true,
+      apiKeys: { orderBy: { createdAt: "asc" } },
       envVars: { orderBy: { key: "asc" } },
     },
   });
@@ -43,7 +45,7 @@ export default async function ProjectPage({ params }: Props) {
   }));
 
   const deleteAction = deleteProject.bind(null, id);
-  const regenerateAction = regenerateApiKey.bind(null, id);
+  const createKeyAction = createApiKey.bind(null, id);
   const upsertAction = upsertEnvVar.bind(null, id);
 
   return (
@@ -69,13 +71,15 @@ export default async function ProjectPage({ params }: Props) {
         </div>
       </div>
 
-      {/* API Key */}
+      {/* API Keys */}
       <div>
-        <h2 className="text-lg font-semibold mb-3">API Key</h2>
+        <h2 className="text-lg font-semibold mb-3">API Keys</h2>
         <div className="card bg-base-200 p-4">
-          <ApiKeyDisplay
-            apiKey={project.apiKey?.key ?? null}
-            regenerateAction={regenerateAction}
+          <ApiKeyList
+            apiKeys={project.apiKeys}
+            createKeyAction={createKeyAction}
+            regenerateAction={regenerateApiKey}
+            deleteAction={deleteApiKey}
           />
         </div>
       </div>

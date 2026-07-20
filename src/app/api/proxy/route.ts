@@ -94,6 +94,8 @@ export async function POST(req: NextRequest) {
           await writeAuditLog({
             action: "PROXY_CALL",
             projectId: project.id,
+            apiKeyId: project.apiKeyId,
+            apiKeyName: project.apiKeyName,
             targetUrl: fetchUrl,
             requestBytes,
             responseBytes: upstreamLength ? parseInt(upstreamLength) : null,
@@ -143,6 +145,8 @@ export async function POST(req: NextRequest) {
         await writeAuditLog({
           action: "PROXY_CALL",
           projectId: project.id,
+          apiKeyId: project.apiKeyId,
+          apiKeyName: project.apiKeyName,
           targetUrl: fetchUrl,
           requestBytes,
           responseBytes: responseBodyBuffer.byteLength,

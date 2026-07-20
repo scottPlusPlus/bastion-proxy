@@ -23,6 +23,8 @@ export async function getProjectFromReq(req: NextRequest) {
 
   return {
     ...record.project,
+    apiKeyId: record.id,
+    apiKeyName: record.name,
     envVars: record.project.envVars.map((v) => ({
       ...v,
       value: decrypt(v.value),

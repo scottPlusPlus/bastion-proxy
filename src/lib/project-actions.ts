@@ -30,7 +30,7 @@ export async function createProject(formData: FormData) {
     data: {
       name,
       userId,
-      apiKey: { create: { key: generateApiKey() } },
+      apiKeys: { create: { name: "Default", key: generateApiKey() } },
     },
   });
 
@@ -62,22 +62,56 @@ export async function deleteProject(id: string) {
 
 // ─── API Keys ───────────────────────────────────────────────
 
-export async function regenerateApiKey(projectId: string) {
+export async function createApiKey(projectId: string, formData: FormData) {
   const userId = await requireUserId();
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) throw new Error("Name is required");
+  if (name.length > 100) throw new Error("Name must be 100 characters or less");
 
-  const project = await prisma.project.findUnique({
-    where: { id: projectId, userId },
-  });
+  const project = await prisma.project.findUnique({ where: { id: projectId, userId } });
   if (!project) throw new Error("Project not found");
 
-  const newKey = generateApiKey();
-  await prisma.apiKey.upsert({
-    where: { projectId },
-    create: { projectId, key: newKey },
-    update: { key: newKey },
-  });
-
+  await prisma.apiKey.create({ data: { projectId, name, key: generateApiKey() } });
   revalidatePath(`/projects/${projectId}`);
+}
+
+export async function regenerateApiKey(keyId: string) {
+  const userId = await requireUserId();
+
+  const apiKey = await prisma.apiKey.findUnique({
+    where: { id: keyId },
+    include: { project: { select: { id: true, userId: true } } },
+  });
+  if (!apiKey || apiKey.project.userId !== userId) throw new Error("Not found");
+
+  await prisma.apiKey.update({ where: { id: keyId }, data: { key: generateApiKey() } });
+  revalidatePath(`/projects/${apiKey.project.id}`);
+}
+
+export async function deleteApiKey(keyId: string) {
+  const userId = await requireUserId();
+
+  const apiKey = await prisma.apiKey.findUnique({
+    where: { id: keyId },
+    include: { project: { select: { id: true, userId: true } } },
+  });
+  if (!apiKey || apiKey.project.userId !== userId) throw new Error("Not found");
+
+  // Keep the count check and deletion in one SQLite statement so concurrent
+  // requests cannot both observe two keys and delete the final pair.
+  const deleted = await prisma.$executeRaw`
+    DELETE FROM "ApiKey"
+    WHERE "id" = ${keyId}
+      AND "projectId" = ${apiKey.project.id}
+      AND EXISTS (
+        SELECT 1 FROM "ApiKey" AS "other"
+        WHERE "other"."projectId" = "ApiKey"."projectId"
+          AND "other"."id" <> "ApiKey"."id"
+      )
+  `;
+  if (deleted === 0) throw new Error("Cannot delete the last API key");
+
+  revalidatePath(`/projects/${apiKey.project.id}`);
 }
 
 // ─── Env Vars ───────────────────────────────────────────────

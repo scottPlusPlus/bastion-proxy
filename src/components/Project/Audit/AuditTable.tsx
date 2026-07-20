@@ -1,10 +1,15 @@
+"use client";
+
+import { useState } from "react";
 import type { AuditAction } from "@/lib/audit";
 import { LocalTime } from "@/components/LocalTime";
+import { Tooltip } from "@/components/Tooltip";
 
 export interface AuditLogRow {
   id: string;
   action: string;
   envVarKey: string | null;
+  apiKeyName: string | null;
   targetUrl: string | null;
   requestBytes: number | null;
   responseBytes: number | null;
@@ -26,27 +31,35 @@ export function AuditTable({ logs }: Props) {
       <table className="table w-full text-sm">
         <thead>
           <tr>
-            <th className="w-40">Timestamp</th>
-            <th className="w-44">Action</th>
-            <th className="w-48">Keys</th>
-            <th>Details</th>
-            <th className="w-28 text-right">Req bytes</th>
-            <th className="w-28 text-right">Res bytes</th>
+            <th className="w-40 shrink-0">Timestamp</th>
+            <th className="w-36 shrink-0">Action</th>
+            <th className="w-28 shrink-0">API Key</th>
+            <th className="w-44 shrink-0">Keys</th>
+            <th className="min-w-0">Details</th>
+            <th className="w-24 shrink-0 text-right">Req</th>
+            <th className="w-24 shrink-0 text-right">Res</th>
           </tr>
         </thead>
         <tbody>
           {logs.map((log) => (
             <tr key={log.id} className="hover">
-              <td className="font-mono text-xs text-base-content/60 whitespace-nowrap">
+              <td className="font-mono text-xs text-base-content/60">
                 <LocalTime date={log.createdAt} />
               </td>
               <td>
                 <ActionBadge action={log.action as AuditAction} />
               </td>
+              <td className="text-sm">
+                {log.apiKeyName ? (
+                  <span className="badge badge-ghost badge-sm font-mono">{log.apiKeyName}</span>
+                ) : (
+                  <span className="text-base-content/30">—</span>
+                )}
+              </td>
               <td>
                 <Keys log={log} />
               </td>
-              <td className="font-mono text-xs break-all">
+              <td className="font-mono text-xs max-w-0">
                 <Details log={log} />
               </td>
               <td className="text-right font-mono text-xs text-base-content/60">
@@ -88,11 +101,38 @@ function ActionBadge({ action }: { action: AuditAction }) {
 }
 
 function Details({ log }: { log: AuditLogRow }) {
-  if (log.action === "PROXY_CALL") {
-    return <span className="text-base-content break-all">{log.targetUrl}</span>;
+  const [copied, setCopied] = useState(false);
+
+  if (log.action !== "PROXY_CALL" || !log.targetUrl) {
+    return <span className="text-base-content/30">—</span>;
   }
 
-  return <span className="text-base-content/30">—</span>;
+  const url = log.targetUrl;
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <Tooltip
+      content={
+        <span className="block max-w-xs space-y-1">
+          <span className="font-mono break-all block">{url}</span>
+          <span className="block text-neutral-content/50">Click to copy</span>
+        </span>
+      }
+      placement="top"
+    >
+      <span
+        onClick={handleCopy}
+        className="block truncate text-base-content cursor-pointer hover:text-primary transition-colors"
+      >
+        {copied ? "Copied!" : url}
+      </span>
+    </Tooltip>
+  );
 }
 
 function Keys({ log }: { log: AuditLogRow }) {

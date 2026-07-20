@@ -63,7 +63,7 @@ model Project {
   name      String
   userId    String
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  apiKey    ApiKey?
+  apiKeys   ApiKey[]
   envVars   EnvVar[]
   auditLogs AuditLog[]
   createdAt DateTime   @default(now())
@@ -72,8 +72,9 @@ model Project {
 
 model ApiKey {
   id        String   @id @default(cuid())
+  name      String   @default("Default")
   key       String   @unique
-  projectId String   @unique
+  projectId String
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 }
@@ -102,6 +103,8 @@ model AuditLog {
   // ENV_VAR_* fields
   envVarKey     String?
   // PROXY_CALL fields
+  apiKeyId      String?
+  apiKeyName    String?
   targetUrl     String?
   requestBytes  Int?
   responseBytes Int?

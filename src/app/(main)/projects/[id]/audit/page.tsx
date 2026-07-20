@@ -15,6 +15,7 @@ interface Props {
     page?: string;
     q?: string;
     action?: string;
+    apiKey?: string;
     from?: string;
     to?: string;
     reqOp?: string;
@@ -32,7 +33,7 @@ export default async function AuditPage({ params, searchParams }: Props) {
 
   const project = await prisma.project.findUnique({
     where: { id, userId: session.user.id },
-    select: { id: true, name: true },
+    select: { id: true, name: true, apiKeys: { select: { id: true, name: true }, orderBy: { createdAt: "asc" } } },
   });
   if (!project) notFound();
 
@@ -41,6 +42,7 @@ export default async function AuditPage({ params, searchParams }: Props) {
   const filters: FilterValues = {
     q: sp.q ?? "",
     action: sp.action ?? "",
+    apiKey: sp.apiKey ?? "",
     from: sp.from ?? "",
     to: sp.to ?? "",
     reqOp: sp.reqOp ?? "gt",
@@ -63,6 +65,10 @@ export default async function AuditPage({ params, searchParams }: Props) {
     where.action = filters.action;
   }
 
+  if (filters.apiKey) {
+    where.apiKeyId = filters.apiKey;
+  }
+
   if (filters.from || filters.to) {
     where.createdAt = {};
     if (filters.from) where.createdAt.gte = new Date(filters.from + "T00:00:00");
@@ -80,7 +86,7 @@ export default async function AuditPage({ params, searchParams }: Props) {
   }
 
   // ─── Query ─────────────────────────────────────────────────
-  const [total, logs] = await Promise.all([
+  const [total, logs, historicalApiKeys] = await Promise.all([
     prisma.auditLog.count({ where }),
     prisma.auditLog.findMany({
       where,
@@ -88,7 +94,20 @@ export default async function AuditPage({ params, searchParams }: Props) {
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
     }),
+    prisma.auditLog.findMany({
+      where: { projectId: id, apiKeyId: { not: null } },
+      select: { apiKeyId: true, apiKeyName: true },
+      distinct: ["apiKeyId"],
+    }),
   ]);
+
+  const apiKeys = [...project.apiKeys];
+  const currentIds = new Set(apiKeys.map((key) => key.id));
+  for (const key of historicalApiKeys) {
+    if (key.apiKeyId && !currentIds.has(key.apiKeyId)) {
+      apiKeys.push({ id: key.apiKeyId, name: key.apiKeyName ?? "Deleted key" });
+    }
+  }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -118,7 +137,7 @@ export default async function AuditPage({ params, searchParams }: Props) {
 
       <h1 className="text-2xl font-bold">Audit Log</h1>
 
-      <AuditFilters baseUrl={baseUrl} filters={filters} />
+      <AuditFilters baseUrl={baseUrl} filters={filters} apiKeys={apiKeys} />
 
       <AuditTable logs={logs} />
 

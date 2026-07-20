@@ -14,6 +14,7 @@ const ACTIONS: { value: AuditAction; label: string }[] = [
 export interface FilterValues {
   q: string;
   action: string;
+  apiKey: string;
   from: string;
   to: string;
   reqOp: string;
@@ -25,13 +26,15 @@ export interface FilterValues {
 interface Props {
   baseUrl: string;
   filters: FilterValues;
+  apiKeys: { id: string; name: string }[];
 }
 
-export function AuditFilters({ baseUrl, filters }: Props) {
+export function AuditFilters({ baseUrl, filters, apiKeys }: Props) {
   const router = useRouter();
   const isActive = Boolean(
     filters.q ||
       filters.action ||
+      filters.apiKey ||
       filters.from ||
       filters.to ||
       filters.req ||
@@ -50,6 +53,7 @@ export function AuditFilters({ baseUrl, filters }: Props) {
 
     append("q");
     append("action");
+    append("apiKey");
     append("from");
     append("to");
 
@@ -96,6 +100,21 @@ export function AuditFilters({ baseUrl, filters }: Props) {
             ))}
           </select>
         </fieldset>
+
+        {/* API Key */}
+        {apiKeys.length > 1 && (
+          <fieldset className="fieldset p-0">
+            <legend className="fieldset-legend text-xs">API Key</legend>
+            <select name="apiKey" defaultValue={filters.apiKey} className="select select-sm w-full">
+              <option value="">All keys</option>
+              {apiKeys.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {k.name}
+                </option>
+              ))}
+            </select>
+          </fieldset>
+        )}
 
         {/* Date range */}
         <fieldset className="fieldset p-0">
