@@ -8,6 +8,9 @@ const ACTIONS: { value: AuditAction; label: string }[] = [
   { value: "ENV_VAR_CREATE", label: "Env var created" },
   { value: "ENV_VAR_UPDATE", label: "Env var updated" },
   { value: "ENV_VAR_DELETE", label: "Env var deleted" },
+  { value: "ENV_VAR_LOCK", label: "Env var locked" },
+  { value: "ENV_VAR_UNLOCK", label: "Env var unlocked" },
+  { value: "ENV_VARS_DUPLICATE", label: "Env vars duplicated" },
   { value: "PROXY_CALL", label: "Proxy call" },
 ];
 

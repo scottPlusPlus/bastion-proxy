@@ -111,6 +111,18 @@ export default async function AuditPage({ params, searchParams }: Props) {
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  function getPageNumbers(current: number, last: number): (number | "...")[] {
+    if (last <= 7) return Array.from({ length: last }, (_, i) => i + 1);
+    const pages: (number | "...")[] = [1];
+    const lo = Math.max(2, current - 2);
+    const hi = Math.min(last - 1, current + 2);
+    if (lo > 2) pages.push("...");
+    for (let p = lo; p <= hi; p++) pages.push(p);
+    if (hi < last - 1) pages.push("...");
+    pages.push(last);
+    return pages;
+  }
+
   // Preserve filters in pagination links
   const filterParams = new URLSearchParams(
     Object.entries({ ...filters, reqOp: filters.reqOp, resOp: filters.resOp }).filter(
@@ -154,15 +166,21 @@ export default async function AuditPage({ params, searchParams }: Props) {
             >
               «
             </Link>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-              <Link
-                key={p}
-                href={href(p)}
-                className={`join-item btn btn-sm ${p === page ? "btn-active" : ""}`}
-              >
-                {p}
-              </Link>
-            ))}
+            {getPageNumbers(page, totalPages).map((p, i) =>
+              p === "..." ? (
+                <span key={`ellipsis-${i}`} className="join-item btn btn-sm btn-disabled">
+                  …
+                </span>
+              ) : (
+                <Link
+                  key={p}
+                  href={href(p)}
+                  className={`join-item btn btn-sm ${p === page ? "btn-active" : ""}`}
+                >
+                  {p}
+                </Link>
+              ),
+            )}
             <Link
               href={href(page + 1)}
               aria-disabled={page >= totalPages}
